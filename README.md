@@ -7,10 +7,12 @@ REST API untuk import dan menampilkan dataset komentar. Express + MySQL.
 ```
 config/       koneksi database (mysql2 pool)
 controllers/  logika endpoint (komentarController.js)
+data/         kamus normalisasi + daftar stopword
 middlewares/  upload file (multer)
 routes/       definisi route
+services/     logika preprocessing NLP
 utils/        helper (response format, parser csv/xlsx)
-database/     DDL (analisis_sentimen_ta.sql)
+database/     DDL + migration
 index.js      entry point
 ```
 
@@ -24,6 +26,12 @@ index.js      entry point
    ```bash
    mysql -u root -p < database/analisis_sentimen_ta.sql
    ```
+   Kalau database sudah pernah dibuat sebelumnya, jalankan migration yang
+   belum diterapkan (urut):
+   ```bash
+   mysql -u root -p < database/migrations/001_add_preprocessing_columns.sql
+   mysql -u root -p < database/migrations/002_reorder_tokenizing_column.sql
+   ```
 3. Copy `.env.example` menjadi `.env`, lalu sesuaikan kredensial MySQL.
 4. Jalankan
    ```bash
@@ -33,13 +41,40 @@ index.js      entry point
 
 ## Endpoint
 
-| Method | Path                     | Keterangan                                   |
-| ------ | ------------------------ | -------------------------------------------- |
-| GET    | `/health`                | Cek status server                            |
-| POST   | `/api/komentar/import`   | Upload dataset (multipart, field `file`)     |
-| GET    | `/api/komentar`          | List komentar (`page`, `limit`, `search`)    |
+| Method | Path                       | Keterangan                                   |
+| ------ | -------------------------- | -------------------------------------------- |
+| GET    | `/health`                  | Cek status server                            |
+| POST   | `/api/komentar/import`     | Upload dataset (multipart, field `file`)     |
+| GET    | `/api/komentar`            | List komentar (`page`, `limit`, `search`)    |
+| GET    | `/api/komentar/progress`   | Jumlah baris terisi per kolom preprocessing  |
+| POST   | `/api/komentar/proses/:step` | Jalankan satu tahap preprocessing           |
+| DELETE | `/api/komentar`            | Hapus semua komentar                         |
 
 Format file yang diterima: `.csv`, `.xlsx`, `.xls` (maksimal 10MB).
+
+## Pipeline preprocessing
+
+Tahap dijalankan berurutan. Setiap tahap membaca kolom sebelumnya dan menulis
+hasilnya ke kolomnya sendiri, jadi kolom awal memang kosong.
+
+| Nilai `:step`     | Kolom hasil              | Sumber                   | Proses                                   |
+| ----------------- | ------------------------ | ------------------------ | ---------------------------------------- |
+| `case-folding`    | `case_folding_result`    | `content`                | huruf kecil                              |
+| `cleaning`        | `cleaning_result`        | `case_folding_result`    | hapus URL, angka, tanda baca, emoji      |
+| `tokenizing`      | `tokenizing_result`      | `cleaning_result`        | pecah jadi token, dipisah koma           |
+| `normalisasi`     | `normalisasi_result`     | `tokenizing_result`      | kata tidak baku jadi baku                |
+| `stopword-remove` | `stopword_remove_result` | `normalisasi_result`     | buang stopword                           |
+| `stemming`        | `stemming_result`        | `stopword_remove_result` | kata dasar (Sastrawi)                    |
+| `transformasi`    | `transformasi_result`    | `stemming_result`        | Bag of Words `{"kata": frekuensi}`       |
+
+- Stemming memakai `sastrawijs` (port JavaScript dari Sastrawi).
+- Kamus normalisasi: `data/normalisasi.json` (bebas ditambah/dikoreksi).
+- Stopword: `data/stopwords.txt` (bawaan Sastrawi, bebas diedit).
+- Kolom token disimpan sebagai teks dengan pemisah koma.
+- Endpoint proses akan menolak jika kolom sumber masih kosong.
+
+Kalau mau mengubah urutan atau menambah tahap, cukup ubah objek `STEPS` di
+`services/preprocessingService.js`.
 
 ## Pemetaan kolom dataset
 
