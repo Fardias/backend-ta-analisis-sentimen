@@ -4,16 +4,14 @@ const {
   importKomentar,
   listKomentar,
   deleteAllKomentar,
-  getProgress,
-  processStep
+  runPreprocessing
 } = require('../controllers/komentarController');
 
 const router = express.Router();
 
 router.get('/', listKomentar);
-router.get('/progress', getProgress);
 router.post('/import', uploadDataset, importKomentar);
-router.post('/proses/:step', processStep);
+router.post('/preprocessing', runPreprocessing);
 router.delete('/', deleteAllKomentar);
 
 module.exports = router;

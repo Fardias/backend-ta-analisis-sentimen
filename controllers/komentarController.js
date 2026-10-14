@@ -8,15 +8,6 @@ const DEFAULT_LIMIT = 10;
 const MAX_LIMIT = 100;
 const UPDATE_CHUNK_SIZE = 200;
 
-const PROGRESS_EXPRESSIONS = [
-  "COALESCE(SUM(content IS NOT NULL AND content <> ''), 0) AS content",
-  ...Object.values(STEPS).map((step) =>
-    step.returnsObject
-      ? `COALESCE(SUM(${step.column} IS NOT NULL), 0) AS \`${step.column}\``
-      : `COALESCE(SUM(${step.column} IS NOT NULL AND ${step.column} <> ''), 0) AS \`${step.column}\``
-  )
-].join(', ');
-
 const LIST_COLUMNS = [
   'id',
   'waktu_import',
@@ -112,70 +103,62 @@ async function deleteAllKomentar(req, res, next) {
   }
 }
 
-async function getProgress(req, res, next) {
-  try {
-    const [rows] = await pool.query(`SELECT ${PROGRESS_EXPRESSIONS} FROM komentar`);
+async function applyStep(step) {
+  const [rows] = await pool.query(
+    `SELECT id, ?? AS source_value FROM komentar
+     WHERE ?? IS NOT NULL AND ?? <> ''
+     ORDER BY id`,
+    [step.source, step.source, step.source]
+  );
 
-    const progress = Object.fromEntries(
-      Object.entries(rows[0]).map(([column, total]) => [column, Number(total)])
+  if (rows.length === 0) {
+    return 0;
+  }
+
+  const updates = rows.map((row) => {
+    const result = step.process(row.source_value);
+    return {
+      id: row.id,
+      value: step.returnsObject ? JSON.stringify(result) : result
+    };
+  });
+
+  for (let index = 0; index < updates.length; index += UPDATE_CHUNK_SIZE) {
+    const chunk = updates.slice(index, index + UPDATE_CHUNK_SIZE);
+    const caseExpression = chunk.map(() => 'WHEN ? THEN ?').join(' ');
+    const params = chunk.flatMap((item) => [item.id, item.value]);
+    const ids = chunk.map((item) => item.id);
+
+    await pool.query(
+      `UPDATE komentar SET ?? = CASE id ${caseExpression} END WHERE id IN (?)`,
+      [step.column, ...params, ids]
     );
+  }
 
-    return successResponse(res, progress, 'Progress preprocessing berhasil diambil');
+  return updates.length;
+}
+
+async function runPreprocessing(req, res, next) {
+  try {
+    const tahapan = [];
+
+    for (const step of Object.values(STEPS)) {
+      tahapan.push({
+        label: step.label,
+        kolom: step.column,
+        total: await applyStep(step)
+      });
+    }
+
+    const total = tahapan[0].total;
+    if (total === 0) {
+      return errorResponse(res, 'Belum ada data komentar untuk diproses', 400);
+    }
+
+    return successResponse(res, { total, tahapan }, `Preprocessing selesai untuk ${total} komentar`);
   } catch (error) {
     next(error);
   }
 }
 
-async function processStep(req, res, next) {
-  try {
-    const step = STEPS[req.params.step];
-    if (!step) {
-      return errorResponse(res, 'Tahap preprocessing tidak dikenal', 400);
-    }
-
-    const [rows] = await pool.query(
-      `SELECT id, ?? AS source_value FROM komentar
-       WHERE ?? IS NOT NULL AND ?? <> ''
-       ORDER BY id`,
-      [step.source, step.source, step.source]
-    );
-
-    if (rows.length === 0) {
-      return errorResponse(
-        res,
-        `Belum ada data pada kolom ${step.source}. Jalankan tahap sebelumnya terlebih dahulu.`,
-        400
-      );
-    }
-
-    const updates = rows.map((row) => {
-      const result = step.process(row.source_value);
-      return {
-        id: row.id,
-        value: step.returnsObject ? JSON.stringify(result) : result
-      };
-    });
-
-    for (let index = 0; index < updates.length; index += UPDATE_CHUNK_SIZE) {
-      const chunk = updates.slice(index, index + UPDATE_CHUNK_SIZE);
-      const caseExpression = chunk.map(() => 'WHEN ? THEN ?').join(' ');
-      const params = chunk.flatMap((item) => [item.id, item.value]);
-      const ids = chunk.map((item) => item.id);
-
-      await pool.query(
-        `UPDATE komentar SET ?? = CASE id ${caseExpression} END WHERE id IN (?)`,
-        [step.column, ...params, ids]
-      );
-    }
-
-    return successResponse(
-      res,
-      { tahap: step.label, kolom: step.column, total: updates.length },
-      `${step.label} selesai diproses untuk ${updates.length} komentar`
-    );
-  } catch (error) {
-    next(error);
-  }
-}
-
-module.exports = { importKomentar, listKomentar, deleteAllKomentar, getProgress, processStep };
+module.exports = { importKomentar, listKomentar, deleteAllKomentar, runPreprocessing };

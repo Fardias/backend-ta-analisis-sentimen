@@ -41,37 +41,37 @@ index.js      entry point
 
 ## Endpoint
 
-| Method | Path                       | Keterangan                                   |
-| ------ | -------------------------- | -------------------------------------------- |
-| GET    | `/health`                  | Cek status server                            |
-| POST   | `/api/komentar/import`     | Upload dataset (multipart, field `file`)     |
-| GET    | `/api/komentar`            | List komentar (`page`, `limit`, `search`)    |
-| GET    | `/api/komentar/progress`   | Jumlah baris terisi per kolom preprocessing  |
-| POST   | `/api/komentar/proses/:step` | Jalankan satu tahap preprocessing           |
-| DELETE | `/api/komentar`            | Hapus semua komentar                         |
+| Method | Path                          | Keterangan                                   |
+| ------ | ----------------------------- | -------------------------------------------- |
+| GET    | `/health`                     | Cek status server                            |
+| POST   | `/api/komentar/import`        | Upload dataset (multipart, field `file`)     |
+| GET    | `/api/komentar`               | List komentar (`page`, `limit`, `search`)    |
+| POST   | `/api/komentar/preprocessing` | Jalankan semua tahap preprocessing           |
+| DELETE | `/api/komentar`               | Hapus semua komentar                         |
 
 Format file yang diterima: `.csv`, `.xlsx`, `.xls` (maksimal 10MB).
 
 ## Pipeline preprocessing
 
-Tahap dijalankan berurutan. Setiap tahap membaca kolom sebelumnya dan menulis
-hasilnya ke kolomnya sendiri, jadi kolom awal memang kosong.
+Tahap dijalankan berurutan dalam satu kali proses. Setiap tahap membaca kolom
+sebelumnya dan menulis hasilnya ke kolomnya sendiri, jadi kolom awal memang
+kosong.
 
-| Nilai `:step`     | Kolom hasil              | Sumber                   | Proses                                   |
-| ----------------- | ------------------------ | ------------------------ | ---------------------------------------- |
-| `case-folding`    | `case_folding_result`    | `content`                | huruf kecil                              |
-| `cleaning`        | `cleaning_result`        | `case_folding_result`    | hapus URL, angka, tanda baca, emoji      |
-| `tokenizing`      | `tokenizing_result`      | `cleaning_result`        | pecah jadi token, dipisah koma           |
-| `normalisasi`     | `normalisasi_result`     | `tokenizing_result`      | kata tidak baku jadi baku                |
-| `stopword-remove` | `stopword_remove_result` | `normalisasi_result`     | buang stopword                           |
-| `stemming`        | `stemming_result`        | `stopword_remove_result` | kata dasar (Sastrawi)                    |
-| `transformasi`    | `transformasi_result`    | `stemming_result`        | Bag of Words `{"kata": frekuensi}`       |
+| Kolom hasil              | Sumber                   | Proses                                   |
+| ------------------------ | ------------------------ | ---------------------------------------- |
+| `case_folding_result`    | `content`                | huruf kecil                              |
+| `cleaning_result`        | `case_folding_result`    | hapus URL, angka, tanda baca, emoji      |
+| `tokenizing_result`      | `cleaning_result`        | pecah jadi token, dipisah koma           |
+| `normalisasi_result`     | `tokenizing_result`      | kata tidak baku jadi baku                |
+| `stopword_remove_result` | `normalisasi_result`     | buang stopword                           |
+| `stemming_result`        | `stopword_remove_result` | kata dasar (Sastrawi)                    |
+| `transformasi_result`    | `stemming_result`        | Bag of Words `{"kata": frekuensi}`       |
 
 - Stemming memakai `sastrawijs` (port JavaScript dari Sastrawi).
 - Kamus normalisasi: `data/normalisasi.json` (bebas ditambah/dikoreksi).
 - Stopword: `data/stopwords.txt` (bawaan Sastrawi, bebas diedit).
 - Kolom token disimpan sebagai teks dengan pemisah koma.
-- Endpoint proses akan menolak jika kolom sumber masih kosong.
+- Endpoint preprocessing menolak jika tabel belum berisi data.
 
 Kalau mau mengubah urutan atau menambah tahap, cukup ubah objek `STEPS` di
 `services/preprocessingService.js`.
