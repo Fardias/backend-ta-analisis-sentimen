@@ -87,6 +87,49 @@ function transformasi(text) {
   }, {});
 }
 
+// Pembagian data training/testing (80:20) secara stratified per label,
+// dengan seed tetap agar hasilnya reproducible.
+const SPLIT_RATIO = 0.8;
+const SPLIT_SEED = 42;
+
+function seededShuffle(array) {
+  let state = SPLIT_SEED;
+
+  const random = () => {
+    state = (state * 1664525 + 1013904223) % 4294967296;
+    return state / 4294967296;
+  };
+
+  const shuffled = array.slice();
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const other = Math.floor(random() * (index + 1));
+    [shuffled[index], shuffled[other]] = [shuffled[other], shuffled[index]];
+  }
+  return shuffled;
+}
+
+// rows: array berisi { id, labeling }.
+function splitTrainTest(rows) {
+  const groups = new Map();
+  for (const row of rows) {
+    const key = String(row.labeling ?? '');
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row.id);
+  }
+
+  const trainingIds = [];
+  const testingIds = [];
+
+  for (const ids of groups.values()) {
+    const shuffled = seededShuffle(ids);
+    const cut = Math.round(ids.length * SPLIT_RATIO);
+    trainingIds.push(...shuffled.slice(0, cut));
+    testingIds.push(...shuffled.slice(cut));
+  }
+
+  return { trainingIds, testingIds };
+}
+
 // Urutan tahap preprocessing. Setiap tahap membaca kolom `source`
 // dan menulis hasilnya ke kolom `column`.
 const STEPS = {
@@ -132,6 +175,12 @@ const STEPS = {
     process: stemming,
     returnsObject: false
   },
+  'split-data': {
+    label: 'Split Data',
+    column: 'data_split',
+    source: 'stemming_result',
+    kind: 'split'
+  },
   transformasi: {
     label: 'Transformasi',
     column: 'transformasi_result',
@@ -146,6 +195,7 @@ const RESULT_COLUMNS = Object.values(STEPS).map((step) => step.column);
 module.exports = {
   STEPS,
   RESULT_COLUMNS,
+  splitTrainTest,
   caseFolding,
   cleaning,
   tokenizing,

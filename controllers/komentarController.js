@@ -1,7 +1,8 @@
 const pool = require('../config/database');
 const { parseDataset } = require('../utils/parser');
 const { successResponse, errorResponse } = require('../utils/response');
-const { STEPS } = require('../services/preprocessingService');
+const { STEPS, splitTrainTest } = require('../services/preprocessingService');
+const { trainNaiveBayes, evaluate } = require('../services/naivebayes');
 
 const INSERT_CHUNK_SIZE = 500;
 const DEFAULT_LIMIT = 10;
@@ -103,7 +104,35 @@ async function deleteAllKomentar(req, res, next) {
   }
 }
 
+async function applySplit(step) {
+  const [rows] = await pool.query(
+    'SELECT id, labeling FROM komentar WHERE ?? IS NOT NULL AND ?? <> \'\' ORDER BY id',
+    [step.source, step.source]
+  );
+
+  if (rows.length === 0) {
+    return 0;
+  }
+
+  const { trainingIds, testingIds } = splitTrainTest(rows);
+
+  await pool.query('UPDATE komentar SET data_split = NULL');
+
+  if (trainingIds.length) {
+    await pool.query('UPDATE komentar SET data_split = ? WHERE id IN (?)', ['training', trainingIds]);
+  }
+  if (testingIds.length) {
+    await pool.query('UPDATE komentar SET data_split = ? WHERE id IN (?)', ['testing', testingIds]);
+  }
+
+  return rows.length;
+}
+
 async function applyStep(step) {
+  if (step.kind === 'split') {
+    return applySplit(step);
+  }
+
   const [rows] = await pool.query(
     `SELECT id, ?? AS source_value FROM komentar
      WHERE ?? IS NOT NULL AND ?? <> ''
@@ -161,4 +190,46 @@ async function runPreprocessing(req, res, next) {
   }
 }
 
-module.exports = { importKomentar, listKomentar, deleteAllKomentar, runPreprocessing };
+async function runNaiveBayes(req, res, next) {
+  try {
+    const [trainingRows] = await pool.query(
+      `SELECT labeling, transformasi_result FROM komentar
+       WHERE data_split = 'training' AND transformasi_result IS NOT NULL`
+    );
+    const [testingRows] = await pool.query(
+      `SELECT labeling, transformasi_result FROM komentar
+       WHERE data_split = 'testing' AND transformasi_result IS NOT NULL`
+    );
+
+    if (trainingRows.length === 0 || testingRows.length === 0) {
+      return errorResponse(
+        res,
+        'Jalankan Preprocessing dulu agar data ter-split menjadi training & testing.',
+        400
+      );
+    }
+
+    const toDocuments = (rows) =>
+      rows.map((row) => ({
+        label: row.labeling,
+        features: row.transformasi_result || {}
+      }));
+
+    const model = trainNaiveBayes(toDocuments(trainingRows));
+    const result = evaluate(model, toDocuments(testingRows));
+
+    return successResponse(
+      res,
+      {
+        totalTraining: trainingRows.length,
+        totalTesting: testingRows.length,
+        ...result
+      },
+      'Naive Bayes selesai dievaluasi'
+    );
+  } catch (error) {
+    next(error);
+  }
+}
+
+module.exports = { importKomentar, listKomentar, deleteAllKomentar, runPreprocessing, runNaiveBayes };

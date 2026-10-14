@@ -31,6 +31,7 @@ index.js      entry point
    ```bash
    mysql -u root -p < database/migrations/001_add_preprocessing_columns.sql
    mysql -u root -p < database/migrations/002_reorder_tokenizing_column.sql
+   mysql -u root -p < database/migrations/003_add_data_split.sql
    ```
 3. Copy `.env.example` menjadi `.env`, lalu sesuaikan kredensial MySQL.
 4. Jalankan
@@ -47,6 +48,7 @@ index.js      entry point
 | POST   | `/api/komentar/import`        | Upload dataset (multipart, field `file`)     |
 | GET    | `/api/komentar`               | List komentar (`page`, `limit`, `search`)    |
 | POST   | `/api/komentar/preprocessing` | Jalankan semua tahap preprocessing           |
+| POST   | `/api/komentar/naive-bayes`   | Latih & evaluasi Naive Bayes                 |
 | DELETE | `/api/komentar`               | Hapus semua komentar                         |
 
 Format file yang diterima: `.csv`, `.xlsx`, `.xls` (maksimal 10MB).
@@ -65,6 +67,7 @@ kosong.
 | `normalisasi_result`     | `tokenizing_result`      | kata tidak baku jadi baku                |
 | `stopword_remove_result` | `normalisasi_result`     | buang stopword                           |
 | `stemming_result`        | `stopword_remove_result` | kata dasar (Sastrawi)                    |
+| `data_split`             | `stemming_result`        | split 80:20 jadi `training`/`testing`    |
 | `transformasi_result`    | `stemming_result`        | Bag of Words `{"kata": frekuensi}`       |
 
 - Stemming memakai `sastrawijs` (port JavaScript dari Sastrawi).
@@ -75,6 +78,18 @@ kosong.
 
 Kalau mau mengubah urutan atau menambah tahap, cukup ubah objek `STEPS` di
 `services/preprocessingService.js`.
+
+## Naive Bayes
+
+Model klasifikasi sentimen (Multinomial Naive Bayes) ditulis from scratch di
+`services/naivebayes.js`, tanpa library ML.
+
+- Membaca data training (`data_split = 'training'`) dan testing
+  (`data_split = 'testing'`) dari kolom `labeling` + `transformasi_result`.
+- Menghitung prior probability, vocabulary, dan likelihood (Laplace smoothing).
+- Evaluasi: akurasi, precision, recall, F1 (per kelas + macro), confusion matrix.
+
+Setiap langkah (A–F) dijelaskan langsung di dalam `services/naivebayes.js`.
 
 ## Pemetaan kolom dataset
 

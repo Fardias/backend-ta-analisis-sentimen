@@ -25,6 +25,7 @@ USE analisis_sentimen_ta;
 --   normalisasi_result      : token setelah normalisasi, dipisah koma
 --   stopword_remove_result  : token tanpa stopword, dipisah koma
 --   stemming_result         : token setelah stemming, dipisah koma
+--   data_split              : 'training' / 'testing' (hasil split 80:20)
 --   transformasi_result     : Bag of Words, JSON {"kata": frekuensi}
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS komentar (
@@ -39,6 +40,7 @@ CREATE TABLE IF NOT EXISTS komentar (
   normalisasi_result      TEXT          NULL,
   stopword_remove_result  TEXT          NULL,
   stemming_result         TEXT          NULL,
+  data_split              VARCHAR(20)   NULL,
   transformasi_result     JSON          NULL,
   PRIMARY KEY (id),
   KEY idx_komentar_labeling (labeling),
