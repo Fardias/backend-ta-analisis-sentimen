@@ -60,7 +60,7 @@ function buildVocabulary(documents) {
   const vocabulary = new Set();
 
   for (const doc of documents) {
-    for (const term of Object.keys(doc.features || {})) {
+    for (const term in doc.features) {
       vocabulary.add(term);
     }
   }
@@ -80,36 +80,57 @@ function buildVocabulary(documents) {
  * pada suatu kelas tidak menghasilkan probabilitas nol.
  */
 function computeLikelihoods(documents, vocabulary, alpha = 1) {
-  const termCounts = {};
-  const classTotals = {};
+  // Tempat menyimpan frekuensi tiap kata untuk tiap kelas.
+  const positifTermCounts = {};
+  const negatifTermCounts = {};
 
-  // Hitung frekuensi tiap kata di tiap kelas.
+  // Total seluruh frekuensi kata pada tiap kelas.
+  let positifTotal = 0;
+  let negatifTotal = 0;
+
+  // Langkah 1: hitung frekuensi kata di tiap kelas.
   for (const doc of documents) {
-    const { label, features } = doc;
+    const features = doc.features || {};
 
-    termCounts[label] = termCounts[label] || {};
-    classTotals[label] = classTotals[label] || 0;
+    for (const term in features) {
+      const frequency = features[term];
 
-    for (const [term, frequency] of Object.entries(features || {})) {
-      termCounts[label][term] = (termCounts[label][term] || 0) + frequency;
-      classTotals[label] += frequency;
+      if (doc.label === 'positif') {
+        if (positifTermCounts[term] === undefined) {
+          positifTermCounts[term] = frequency;
+        } else {
+          positifTermCounts[term] += frequency;
+        }
+        positifTotal += frequency;
+      } else if (doc.label === 'negatif') {
+        if (negatifTermCounts[term] === undefined) {
+          negatifTermCounts[term] = frequency;
+        } else {
+          negatifTermCounts[term] += frequency;
+        }
+        negatifTotal += frequency;
+      }
     }
   }
 
   const vocabularySize = vocabulary.length;
-  const likelihoods = {};
 
-  for (const label of Object.keys(termCounts)) {
-    likelihoods[label] = {};
-    const denominator = classTotals[label] + alpha * vocabularySize;
+  // Langkah 2: hitung likelihood tiap kata dengan Laplace smoothing.
+  const positifLikelihood = {};
+  const negatifLikelihood = {};
 
-    for (const term of vocabulary) {
-      const count = termCounts[label][term] || 0;
-      likelihoods[label][term] = (count + alpha) / denominator;
-    }
+  for (const term of vocabulary) {
+    const positifCount = positifTermCounts[term] || 0;
+    const negatifCount = negatifTermCounts[term] || 0;
+
+    positifLikelihood[term] = (positifCount + alpha) / (positifTotal + alpha * vocabularySize);
+    negatifLikelihood[term] = (negatifCount + alpha) / (negatifTotal + alpha * vocabularySize);
   }
 
-  return likelihoods;
+  return {
+    positif: positifLikelihood,
+    negatif: negatifLikelihood
+  };
 }
 
 /**
